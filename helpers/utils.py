@@ -1,12 +1,16 @@
 # Copyright (C) @TheSmartBisnu
 # Channel: https://t.me/itsSmartDev
 
+import re
 import os
+import logging
 from time import time
+
 from pyrogram import enums
 from pyleaves import Leaves
+from pyrogram.parser import Parser
 from collections import defaultdict
-from pyrogram.types import InputMediaPhoto, InputMediaVideo
+from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 
 # Maximum file size limit to 2GB
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # If your telegram account is premium then use 4GB
@@ -20,65 +24,8 @@ async def fileSizeLimit(file_size, message, action_type="download"):
         return False
     return True
 
-priority = {
-    enums.MessageEntityType.BOLD: 1,
-    enums.MessageEntityType.ITALIC: 2,
-    enums.MessageEntityType.UNDERLINE: 3,
-    enums.MessageEntityType.STRIKETHROUGH: 4,
-    enums.MessageEntityType.SPOILER: 5,
-    enums.MessageEntityType.CODE: 6,
-    enums.MessageEntityType.PRE: 7,
-    enums.MessageEntityType.TEXT_LINK: 8,
-    enums.MessageEntityType.HASHTAG: 9
-}
-
-default_priority = 100
-
-async def get_parsed_msg(message_text, entities):
-    if not entities:
-        return message_text
-
-    entity_dict = defaultdict(list)
-    for entity in entities:
-        start = entity.offset
-        end = entity.offset + entity.length
-        entity_dict[(start, end)].append(entity)
-
-    last_end = 0
-    result = []
-    for (start, end), entities in sorted(entity_dict.items()):
-        if start > last_end:
-            result.append(message_text[last_end:start])
-        formatted_text = message_text[start:end]
-        entities.sort(key=lambda x: priority.get(x.type, default_priority), reverse=True)
-        for entity in entities:
-            if entity.type == enums.MessageEntityType.BOLD:
-                formatted_text = f"**{formatted_text}**"
-            elif entity.type == enums.MessageEntityType.ITALIC:
-                formatted_text = f"__{formatted_text}__"
-            elif entity.type == enums.MessageEntityType.UNDERLINE:
-                formatted_text = f"--{formatted_text}--"
-            elif entity.type == enums.MessageEntityType.STRIKETHROUGH:
-                formatted_text = f"~~{formatted_text}~~"
-            elif entity.type == enums.MessageEntityType.SPOILER:
-                formatted_text = f"||{formatted_text}||"
-            elif entity.type == enums.MessageEntityType.CODE:
-                formatted_text = f"`{formatted_text}`"
-            elif entity.type == enums.MessageEntityType.PRE:
-                formatted_text = f"```{formatted_text}```"
-            elif entity.type == enums.MessageEntityType.TEXT_LINK:
-                formatted_text = f"[{formatted_text}]({entity.url})"
-            elif entity.type == enums.MessageEntityType.HASHTAG:
-                formatted_text = f"{formatted_text}"
-
-        result.append(formatted_text)
-        last_end = end
-
-    if last_end < len(message_text):
-        result.append(message_text[last_end:])
-
-    return "".join(result)
-
+async def get_parsed_msg(text, entities):
+    return Parser.unparse(text, entities or [], is_html=False)
 
 # Progress bar template
 PROGRESS_BAR = """
@@ -87,14 +34,27 @@ Speed: {speed}/s
 Estimated Time Left: {est_time} seconds
 """
 
-# Function to extract chat ID and message ID from URL
 def getChatMsgID(url: str):
-    parts = url.split("/")
-    chat_id = int("-100" + parts[-2])
-    message_id = int(parts[-1])
-    return chat_id, message_id
+    try:
+        if "/c/" in url:
+            parts = url.split("/")
+            chat_id = int("-100" + parts[-2])
+            message_id = int(parts[-1])
+            return chat_id, message_id
+
+        elif "t.me" in url:
+            parts = url.split("/")
+            chat_username = parts[-2]
+            message_id = int(parts[-1])
+            
+            return chat_username, message_id
+
+        else:
+            raise ValueError("Invalid URL format. Please check the link.")
     
-    
+    except (IndexError, ValueError) as e:
+        raise ValueError(f"Error parsing URL: {str(e)}")
+
 # Generate progress bar for downloading/uploading
 def progressArgs(action: str, progress_message, start_time):
     return (
@@ -113,6 +73,7 @@ async def send_media(bot, message, media_path, media_type, caption, progress_mes
         return
     
     progress_args = progressArgs("📥 Uploading Progress", progress_message, start_time)
+    print(f"Uploading media: {media_path} ({media_type})")
 
     if media_type == "photo":
         await message.reply_photo(
@@ -143,18 +104,78 @@ async def send_media(bot, message, media_path, media_type, caption, progress_mes
             progress_args=progress_args
         )
 
-# Helper function to handle media groups
 async def processMediaGroup(user, chat_id, message_id, bot, message):
     media_group_messages = await user.get_media_group(chat_id, message_id)
-    media_list = []
+    valid_media = []
+    temp_paths = []
+    invalid_paths = []
+
+    start_time = time()
+    progress_message = await message.reply("📥 Downloading media group...")
+    print(f"Downloading media group with {len(media_group_messages)} items...")
 
     for msg in media_group_messages:
-        if msg.photo:
-            media_list.append(InputMediaPhoto(media=msg.photo.file_id, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
-        elif msg.video:
-            media_list.append(InputMediaVideo(media=msg.video.file_id, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+        if msg.photo or msg.video or msg.document or msg.audio or msg.voice:
+            try:
+                media_path = await msg.download(progress=Leaves.progress_for_pyrogram, progress_args=progressArgs(
+                    "📥 Downloading Progress", progress_message, start_time
+                ))
+                temp_paths.append(media_path)
 
-    if media_list:
-        await bot.send_media_group(chat_id=message.chat.id, media=media_list)
+                if msg.photo:
+                    valid_media.append(InputMediaPhoto(media=media_path, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+                elif msg.video:
+                    valid_media.append(InputMediaVideo(media=media_path, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+                elif msg.document:
+                    valid_media.append(InputMediaDocument(media=media_path, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+                elif msg.audio:
+                    valid_media.append(InputMediaAudio(media=media_path, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+                elif msg.voice:
+                    valid_media.append(InputMediaVoice(media=media_path, caption=await get_parsed_msg(msg.caption or "", msg.caption_entities)))
+
+            except Exception as e:
+                print(f"Error downloading media: {e}")
+                if media_path and os.path.exists(media_path):
+                    invalid_paths.append(media_path)
+                continue
+
+    print(f"Valid media count: {len(valid_media)}")
+
+    if valid_media:
+        try:
+            await bot.send_media_group(chat_id=message.chat.id, media=valid_media)
+            await progress_message.delete()
+        except Exception as e:
+            await message.reply(f"**❌ Failed to send media group, trying individual uploads**")
+            for media in valid_media:
+                try:
+                    if isinstance(media, InputMediaPhoto):
+                        await bot.send_photo(chat_id=message.chat.id, photo=media.media, caption=media.caption)
+                    elif isinstance(media, InputMediaVideo):
+                        await bot.send_video(chat_id=message.chat.id, video=media.media, caption=media.caption)
+                    elif isinstance(media, InputMediaDocument):
+                        await bot.send_document(chat_id=message.chat.id, document=media.media, caption=media.caption)
+                    elif isinstance(media, InputMediaAudio):
+                        await bot.send_audio(chat_id=message.chat.id, audio=media.media, caption=media.caption)
+                    elif isinstance(media, InputMediaVoice):
+                        await bot.send_voice(chat_id=message.chat.id, voice=media.media, caption=media.caption)
+                except Exception as individual_e:
+                    await message.reply(f"Failed to upload individual media: {individual_e}")
+
+            await progress_message.delete()
+
+        for path in temp_paths:
+            if os.path.exists(path):
+                os.remove(path)
+        for path in invalid_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
         return True
+
+    await progress_message.delete()
+    await message.reply("❌ No valid media found in the media group.")
+    for path in invalid_paths:
+        if os.path.exists(path):
+            os.remove(path)
     return False
