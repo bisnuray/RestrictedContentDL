@@ -24,7 +24,7 @@
 
 Before you begin, ensure you have met the following requirements:
 
-- Python 3.8 or higher.
+- Python 3.8 or higher. recommended Python 3.11
 - `pyrofork`, `pyleaves` and `tgcrypto` libraries.
 - A Telegram bot token (you can get one from [@BotFather](https://t.me/BotFather) on Telegram).
 - API ID and Hash: You can get these by creating an application on [my.telegram.org](https://my.telegram.org).
