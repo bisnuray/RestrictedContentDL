@@ -1,0 +1,10 @@
+services:
+  media_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - TZ=Asia/Kolkata
+    restart: always
+    volumes:
+      - .:/app
