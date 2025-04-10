@@ -1,8 +1,13 @@
-FROM python:3.10-alpine
+FROM python:3.11-slim
 
-RUN apk update && apk upgrade --no-cache
-RUN apk --no-cache -q add git build-base linux-headers tzdata
-ENV TZ=Asia/Kolkata
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    git build-essential linux-headers-amd64 tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set timezone (use Asia/Kolkata if needed)
+ENV TZ=Asia/Dhaka
+
 RUN pip install --no-cache-dir -U pip wheel==0.45.1
 
 WORKDIR /app
