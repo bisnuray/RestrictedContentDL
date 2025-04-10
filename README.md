@@ -35,14 +35,14 @@ Before you begin, ensure you have met the following requirements:
 To install `pyrofork`, `pyleaves` and `tgcrypto`, run the following command:
 
 ```bash
-pip install pyrofork tgcrypto pyleaves
+pip install -r -U requirements.txt
 ```
 
 **Note: If you previously installed `pyrogram`, uninstall it before installing `pyrofork`.**
 
 ## Configuration
 
-1. Open the `config.py` file in your favorite text editor.
+1. Open the `config.env` file in your favorite text editor.
 2. Replace the placeholders for `API_ID`, `API_HASH`, `SESSION_STRING`, and `BOT_TOKEN` with your actual values:
    - **`API_ID`**: Your API ID from [my.telegram.org](https://my.telegram.org).
    - **`API_HASH`**: Your API Hash from [my.telegram.org](https://my.telegram.org).
@@ -57,12 +57,27 @@ cd RestrictedContentDL
 python main.py
 ```
 
+## Deploy the Bot Using Docker Compose
+
+```sh
+git clone https://github.com/bisnuray/RestrictedContentDL
+cd RestrictedContentDL
+docker compose up --build --remove-orphans
+```
+
+Make sure you have Docker and Docker Compose installed on your system. The bot will run in a containerized environment with all dependencies automatically managed.
+
+To stop the bot:
+
+```sh
+docker compose down
+```
+
 ## Usage
 
 - `/start` – Welcomes the user and gives a brief introduction.
 - `/help` – Provides detailed instructions on how to use the bot.
 - `/dl <post URL>` – Downloads the media from the specified post URL.
-
 
 > **Note:** Ensure that the user client is part of the chat from where the media is being downloaded. If the user client is not part of the chat, the bot will not be able to download the file.
 

@@ -1,50 +1,43 @@
 # Copyright (C) @TheSmartBisnu
 # Channel: https://t.me/itsSmartDev
 
-import re
 import os
+import shutil
 import traceback
 from time import time
 
-from pyleaves import Leaves
+import psutil
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid
 
 from helpers.utils import (
     processMediaGroup,
     get_parsed_msg,
-    PROGRESS_BAR,
     fileSizeLimit,
     getChatMsgID,
-    progressArgs,
-    send_media
+    send_media,
+    get_readable_file_size,
+    get_readable_time,
 )
 
-from config import (
-    API_ID,
-    API_HASH,
-    BOT_TOKEN,
-    SESSION_STRING
-)
+from config import PyroConf
+from logger import LOGGER
 
 # Initialize the bot client
 bot = Client(
     "media_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
+    api_id=PyroConf.API_ID,
+    api_hash=PyroConf.API_HASH,
+    bot_token=PyroConf.BOT_TOKEN,
     workers=1000,
-    parse_mode=ParseMode.MARKDOWN
+    parse_mode=ParseMode.MARKDOWN,
 )
 
 # Client for user session
-user = Client(
-    "user_session",
-    workers=1000,
-    session_string=SESSION_STRING
-)
+user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRING)
+
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start(bot, message: Message):
@@ -54,6 +47,7 @@ async def start(bot, message: Message):
         "Use /help for more information on how to use this bot."
     )
     await message.reply(welcome_text)
+
 
 @bot.on_message(filters.command("help") & filters.private)
 async def help_command(bot, message: Message):
@@ -65,6 +59,7 @@ async def help_command(bot, message: Message):
         "**Example**: `/dl https://t.me/itsSmartDev/547`"
     )
     await message.reply(help_text)
+
 
 @bot.on_message(filters.command("dl") & filters.private)
 async def download_media(bot, message: Message):
@@ -78,22 +73,34 @@ async def download_media(bot, message: Message):
         chat_id, message_id = getChatMsgID(post_url)
         chat_message = await user.get_messages(chat_id, message_id)
 
-        print(f"Downloading media from URL: {post_url}")
+        LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
 
         if chat_message.document or chat_message.video or chat_message.audio:
-            file_size = chat_message.document.file_size if chat_message.document else \
-                        chat_message.video.file_size if chat_message.video else \
-                        chat_message.audio.file_size
+            file_size = (
+                chat_message.document.file_size
+                if chat_message.document
+                else chat_message.video.file_size
+                if chat_message.video
+                else chat_message.audio.file_size
+            )
 
-            if not await fileSizeLimit(file_size, message, "download"):
+            if not await fileSizeLimit(
+                file_size, message, "download", user.me.is_premium
+            ):
                 return
 
-        parsed_caption = await get_parsed_msg(chat_message.caption or "", chat_message.caption_entities)
-        parsed_text = await get_parsed_msg(chat_message.text or "", chat_message.entities)
+        parsed_caption = await get_parsed_msg(
+            chat_message.caption or "", chat_message.caption_entities
+        )
+        parsed_text = await get_parsed_msg(
+            chat_message.text or "", chat_message.entities
+        )
 
         if chat_message.media_group_id:
             if not await processMediaGroup(user, chat_id, message_id, bot, message):
-                await message.reply("**Could not extract any valid media from the media group.**")
+                await message.reply(
+                    "**Could not extract any valid media from the media group.**"
+                )
             return
 
         elif chat_message.media:
@@ -101,10 +108,26 @@ async def download_media(bot, message: Message):
             progress_message = await message.reply("**📥 Downloading Progress...**")
 
             media_path = await chat_message.download()
-            print(f"Downloaded media: {media_path}")
+            LOGGER(__name__).info(f"Downloaded media: {media_path}")
 
-            media_type = "photo" if chat_message.photo else "video" if chat_message.video else "audio" if chat_message.audio else "document"
-            await send_media(bot, message, media_path, media_type, parsed_caption, progress_message, start_time)
+            media_type = (
+                "photo"
+                if chat_message.photo
+                else "video"
+                if chat_message.video
+                else "audio"
+                if chat_message.audio
+                else "document"
+            )
+            await send_media(
+                bot,
+                message,
+                media_path,
+                media_type,
+                parsed_caption,
+                progress_message,
+                start_time,
+            )
 
             os.remove(media_path)
             await progress_message.delete()
@@ -121,8 +144,47 @@ async def download_media(bot, message: Message):
         error_message = f"**❌ {str(e)}**"
         await message.reply(error_message)
 
+
+@bot.on_message(filters.command("stats") & filters.private)
+async def stats(bot, message: Message):
+    currentTime = get_readable_time(time() - PyroConf.BOT_START_TIME)
+    total, used, free = shutil.disk_usage(".")
+    total = get_readable_file_size(total)
+    used = get_readable_file_size(used)
+    free = get_readable_file_size(free)
+    sent = get_readable_file_size(psutil.net_io_counters().bytes_sent)
+    recv = get_readable_file_size(psutil.net_io_counters().bytes_recv)
+    cpuUsage = psutil.cpu_percent(interval=0.5)
+    memory = psutil.virtual_memory().percent
+    disk = psutil.disk_usage("/").percent
+    process = psutil.Process(os.getpid())
+
+    stats = (
+        "**≧◉◡◉≦ Bot is Up and Running successfully.**\n\n"
+        f"**➜ Bot Uptime:** `{currentTime}`\n"
+        f"**➜ Total Disk Space:** `{total}`\n"
+        f"**➜ Used:** `{used}`\n"
+        f"**➜ Free:** `{free}`\n"
+        f"**➜ Memory Usage:** `{round(process.memory_info()[0] / 1024**2)} MiB`\n\n"
+        f"**➜ Upload:** `{sent}`\n"
+        f"**➜ Download:** `{recv}`\n\n"
+        f"**➜ CPU:** `{cpuUsage}%` | "
+        f"**➜ RAM:** `{memory}%` | "
+        f"**➜ DISK:** `{disk}%`"
+    )
+    await message.reply(stats)
+
+
+@bot.on_message(filters.command("logs") & filters.private)
+async def logs(client: Client, message: Message):
+    if os.path.exists("yui.log"):
+        await message.reply_document(document="logs.txt", caption="**Logs**")
+    else:
+        await message.reply("**Not exists**")
+
+
 if __name__ == "__main__":
-    print("Bot is starting...")
+    LOGGER(__name__).info("Bot is starting...")
     user.start()
     bot.run()
-    print("Bot is running!")
+    LOGGER(__name__).info("Bot is running!")
