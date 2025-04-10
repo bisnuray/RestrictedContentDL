@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - TZ=Asia/Kolkata
+      - TZ=Asia/Dhaka
     restart: always
     volumes:
       - .:/app
