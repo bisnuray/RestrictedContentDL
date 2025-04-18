@@ -3,14 +3,13 @@
 
 import os
 import shutil
-import traceback
 from time import time
 
 import psutil
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 from pyrogram import Client, filters
-from pyrogram.errors import PeerIdInvalid
+from pyrogram.errors import PeerIdInvalid, BadRequest
 
 from helpers.utils import (
     processMediaGroup,
@@ -137,12 +136,12 @@ async def download_media(bot, message: Message):
         else:
             await message.reply("**No media or text found in the post URL.**")
 
-    except PeerIdInvalid:
+    except (PeerIdInvalid, BadRequest, KeyError):
         await message.reply("**Make sure the user client is part of the chat.**")
     except Exception as e:
-        traceback.format_exc(e)
         error_message = f"**❌ {str(e)}**"
         await message.reply(error_message)
+        LOGGER(__name__).error(e)
 
 
 @bot.on_message(filters.command("stats") & filters.private)
@@ -184,7 +183,13 @@ async def logs(client: Client, message: Message):
 
 
 if __name__ == "__main__":
-    LOGGER(__name__).info("Bot is starting...")
-    user.start()
-    bot.run()
-    LOGGER(__name__).info("Bot is running!")
+    try:
+        LOGGER(__name__).info("Bot is running!")
+        user.start()
+        bot.run()
+    except KeyboardInterrupt:
+        pass
+    except Exception as err:
+        LOGGER(__name__).error(err.with_traceback(None))
+    finally:
+        LOGGER(__name__).info("Bot Stopped")
