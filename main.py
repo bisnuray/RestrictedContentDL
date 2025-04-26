@@ -10,12 +10,14 @@ from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid, BadRequest
+from pyleaves import Leaves
 
 from helpers.utils import (
     processMediaGroup,
     get_parsed_msg,
     fileSizeLimit,
     getChatMsgID,
+    progressArgs,
     send_media,
     get_readable_file_size,
     get_readable_time,
@@ -106,7 +108,13 @@ async def download_media(bot, message: Message):
             start_time = time()
             progress_message = await message.reply("**📥 Downloading Progress...**")
 
-            media_path = await chat_message.download()
+            media_path = await chat_message.download(
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progressArgs(
+                    "📥 Downloading Progress", progress_message, start_time
+                ),
+            )
+
             LOGGER(__name__).info(f"Downloaded media: {media_path}")
 
             media_type = (
@@ -176,7 +184,7 @@ async def stats(bot, message: Message):
 
 @bot.on_message(filters.command("logs") & filters.private)
 async def logs(client: Client, message: Message):
-    if os.path.exists("yui.log"):
+    if os.path.exists("logs.txt"):
         await message.reply_document(document="logs.txt", caption="**Logs**")
     else:
         await message.reply("**Not exists**")
