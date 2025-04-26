@@ -9,6 +9,7 @@ from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
 from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
+from pyrogram.utils import get_channel_id
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -75,26 +76,33 @@ Estimated Time Left: {est_time} seconds
 """
 
 
-def getChatMsgID(url: str):
-    try:
-        if "/c/" in url:
-            parts = url.split("/")
-            chat_id = int("-100" + parts[-2])
-            message_id = int(parts[-1])
-            return chat_id, message_id
-
-        elif "t.me" in url:
-            parts = url.split("/")
-            chat_username = parts[-2]
-            message_id = int(parts[-1])
-
-            return chat_username, message_id
-
+def getChatMsgID(link: str):
+    linkps = link.split("/")
+    chat_id, message_thread_id, message_id = None, None, None
+    if len(linkps) == 7 and linkps[3] == "c":
+        # https://t.me/c/1192302355/322/487
+        chat_id = get_channel_id(int(linkps[4]))
+        message_thread_id = int(linkps[5])
+        message_id = int(linkps[6])
+    elif len(linkps) == 6:
+        if linkps[3] == "c":
+            # https://t.me/c/1387666944/609282
+            chat_id = get_channel_id(int(linkps[4]))
+            message_id = int(linkps[5])
         else:
-            raise ValueError("Invalid URL format. Please check the link.")
+            # https://t.me/TheForum/322/487
+            chat_id = linkps[3]
+            message_thread_id = int(linkps[4])
+            message_id = int(linkps[5])
 
-    except (IndexError, ValueError) as e:
-        raise ValueError(f"Error parsing URL: {str(e)}")
+    elif len(linkps) == 5:
+        # https://t.me/pyrogramchat/609282
+        chat_id = linkps[3]
+        if chat_id == "m":
+            raise ValueError("Invalid ClientType used to parse this message link")
+        message_id = int(linkps[4])
+
+    return chat_id, message_id
 
 
 async def cmd_exec(cmd, shell=False):

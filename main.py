@@ -13,6 +13,7 @@ from pyrogram.errors import PeerIdInvalid, BadRequest
 from pyleaves import Leaves
 
 from helpers.utils import (
+    getChatMsgID,
     processMediaGroup,
     get_parsed_msg,
     fileSizeLimit,
@@ -40,7 +41,7 @@ user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRI
 
 
 @bot.on_message(filters.command("start") & filters.private)
-async def start(bot, message: Message):
+async def start(_, message: Message):
     welcome_text = (
         "**👋 Welcome to the Media Downloader Bot!**\n\n"
         "This bot helps you download media from Restricted channel\n"
@@ -50,7 +51,7 @@ async def start(bot, message: Message):
 
 
 @bot.on_message(filters.command("help") & filters.private)
-async def help_command(bot, message: Message):
+async def help_command(_, message: Message):
     help_text = (
         "💡 **How to Use the Bot**\n\n"
         "1. Send the command `/dl post URL` to download media from a specific message.\n"
@@ -62,7 +63,7 @@ async def help_command(bot, message: Message):
 
 
 @bot.on_message(filters.command("dl") & filters.private)
-async def download_media(bot, message: Message):
+async def download_media(bot: Client, message: Message):
     if len(message.command) < 2:
         await message.reply("**Provide a post URL after the /dl command.**")
         return
@@ -70,8 +71,8 @@ async def download_media(bot, message: Message):
     post_url = message.command[1]
 
     try:
-        # chat_id, message_id = getChatMsgID(post_url)
-        chat_message = await user.get_messages(link=post_url)
+        chat_id, message_id = getChatMsgID(post_url)
+        chat_message = await user.get_messages(chat_id=chat_id, message_ids=message_id)
 
         LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
 
@@ -152,7 +153,7 @@ async def download_media(bot, message: Message):
 
 
 @bot.on_message(filters.command("stats") & filters.private)
-async def stats(bot, message: Message):
+async def stats(_, message: Message):
     currentTime = get_readable_time(time() - PyroConf.BOT_START_TIME)
     total, used, free = shutil.disk_usage(".")
     total = get_readable_file_size(total)
@@ -182,7 +183,7 @@ async def stats(bot, message: Message):
 
 
 @bot.on_message(filters.command("logs") & filters.private)
-async def logs(client: Client, message: Message):
+async def logs(_, message: Message):
     if os.path.exists("logs.txt"):
         await message.reply_document(document="logs.txt", caption="**Logs**")
     else:
@@ -191,7 +192,7 @@ async def logs(client: Client, message: Message):
 
 if __name__ == "__main__":
     try:
-        LOGGER(__name__).info("Bot is running!")
+        LOGGER(__name__).info("Bot Started!")
         user.start()
         bot.run()
     except KeyboardInterrupt:

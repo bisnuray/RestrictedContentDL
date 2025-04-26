@@ -1,4 +1,4 @@
-Pyrotgfork==2.2.9
+Pyrofork
 TgCrypto
 Pyleaves
 python-dotenv
