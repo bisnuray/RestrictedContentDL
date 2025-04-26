@@ -1,10 +1,12 @@
 # Copyright (C) @TheSmartBisnu
 # Channel: https://t.me/itsSmartDev
 
+from asyncio.subprocess import PIPE
 import os
 from time import time
 from typing import Optional
-
+from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
+from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.types import (
@@ -95,6 +97,94 @@ def getChatMsgID(url: str):
         raise ValueError(f"Error parsing URL: {str(e)}")
 
 
+async def cmd_exec(cmd, shell=False):
+    if shell:
+        proc = await create_subprocess_shell(cmd, stdout=PIPE, stderr=PIPE)
+    else:
+        proc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = await proc.communicate()
+    try:
+        stdout = stdout.decode().strip()
+    except:
+        stdout = "Unable to decode the response!"
+    try:
+        stderr = stderr.decode().strip()
+    except:
+        stderr = "Unable to decode the error!"
+    return stdout, stderr, proc.returncode
+
+
+async def get_media_info(path):
+    try:
+        result = await cmd_exec(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-print_format",
+                "json",
+                "-show_format",
+                path,
+            ]
+        )
+    except Exception as e:
+        print(f"Get Media Info: {e}. Mostly File not found! - File: {path}")
+        return 0, None, None
+    if result[0] and result[2] == 0:
+        fields = eval(result[0]).get("format")
+        if fields is None:
+            print(f"get_media_info: {result}")
+            return 0, None, None
+        duration = round(float(fields.get("duration", 0)))
+        tags = fields.get("tags", {})
+        artist = tags.get("artist") or tags.get("ARTIST") or tags.get("Artist")
+        title = tags.get("title") or tags.get("TITLE") or tags.get("Title")
+        return duration, artist, title
+    return 0, None, None
+
+
+async def get_video_thumbnail(video_file, duration):
+    output = os.path.join("Assets", "video_thumb.jpg")
+    if duration is None:
+        duration = (await get_media_info(video_file))[0]
+    if duration == 0:
+        duration = 3
+    duration = duration // 2
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{duration}",
+        "-i",
+        video_file,
+        "-vf",
+        "thumbnail",
+        "-q:v",
+        "1",
+        "-frames:v",
+        "1",
+        "-threads",
+        f"{os.cpu_count() // 2}",
+        output,
+    ]
+    try:
+        _, err, code = await wait_for(cmd_exec(cmd), timeout=60)
+        if code != 0 or not os.path.exists(output):
+            print(
+                f"Error while extracting thumbnail from video. Name: {video_file} stderr: {err}"
+            )
+            return None
+    except:
+        print(
+            f"Error while extracting thumbnail from video. Name: {video_file}. Error: Timeout some issues with ffmpeg with specific arch!"
+        )
+        return None
+    return output
+
+
 # Generate progress bar for downloading/uploading
 def progressArgs(action: str, progress_message, start_time):
     return (action, progress_message, start_time, PROGRESS_BAR, "▓", "░")
@@ -119,15 +209,37 @@ async def send_media(
             progress_args=progress_args,
         )
     elif media_type == "video":
+        if os.path.exists("Assets/video_thumb.jpg"):
+            os.remove("Assets/video_thumb.jpg")
+        duration = (await get_media_info(media_path))[0]
+        thumb = await get_video_thumbnail(media_path, duration)
+        if thumb is not None and thumb != "none":
+            with Image.open(thumb) as img:
+                width, height = img.size
+        else:
+            width = 480
+            height = 320
+
+        if thumb == "none":
+            thumb = None
+
         await message.reply_video(
             media_path,
+            duration=duration,
+            width=width,
+            height=height,
+            thumb=thumb,
             caption=caption or "",
             progress=Leaves.progress_for_pyrogram,
             progress_args=progress_args,
         )
     elif media_type == "audio":
+        duration, artist, title = await get_media_info(media_path)
         await message.reply_audio(
             media_path,
+            duration=duration,
+            performer=artist,
+            title=title,
             caption=caption or "",
             progress=Leaves.progress_for_pyrogram,
             progress_args=progress_args,
@@ -141,8 +253,8 @@ async def send_media(
         )
 
 
-async def processMediaGroup(user, chat_id, message_id, bot, message):
-    media_group_messages = await user.get_media_group(chat_id, message_id)
+async def processMediaGroup(chat_message, bot, message):
+    media_group_messages = await chat_message.get_media_group()
     valid_media = []
     temp_paths = []
     invalid_paths = []

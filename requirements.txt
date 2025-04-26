@@ -1,5 +1,6 @@
-Pyrofork
+Pyrotgfork==2.2.10
 TgCrypto
 Pyleaves
 python-dotenv
 psutil
+pillow

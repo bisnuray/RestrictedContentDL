@@ -16,7 +16,6 @@ from helpers.utils import (
     processMediaGroup,
     get_parsed_msg,
     fileSizeLimit,
-    getChatMsgID,
     progressArgs,
     send_media,
     get_readable_file_size,
@@ -71,8 +70,8 @@ async def download_media(bot, message: Message):
     post_url = message.command[1]
 
     try:
-        chat_id, message_id = getChatMsgID(post_url)
-        chat_message = await user.get_messages(chat_id, message_id)
+        # chat_id, message_id = getChatMsgID(post_url)
+        chat_message = await user.get_messages(link=post_url)
 
         LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
 
@@ -98,7 +97,7 @@ async def download_media(bot, message: Message):
         )
 
         if chat_message.media_group_id:
-            if not await processMediaGroup(user, chat_id, message_id, bot, message):
+            if not await processMediaGroup(chat_message, bot, message):
                 await message.reply(
                     "**Could not extract any valid media from the media group.**"
                 )
