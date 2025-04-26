@@ -197,6 +197,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as err:
-        LOGGER(__name__).error(err.with_traceback(None))
+        LOGGER(__name__).error(err)
     finally:
         LOGGER(__name__).info("Bot Stopped")
