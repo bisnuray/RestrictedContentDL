@@ -3,20 +3,21 @@
 
 import os
 import shutil
-import traceback
 from time import time
 
 import psutil
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 from pyrogram import Client, filters
-from pyrogram.errors import PeerIdInvalid
+from pyrogram.errors import PeerIdInvalid, BadRequest
+from pyleaves import Leaves
 
 from helpers.utils import (
+    getChatMsgID,
     processMediaGroup,
     get_parsed_msg,
     fileSizeLimit,
-    getChatMsgID,
+    progressArgs,
     send_media,
     get_readable_file_size,
     get_readable_time,
@@ -40,7 +41,7 @@ user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRI
 
 
 @bot.on_message(filters.command("start") & filters.private)
-async def start(bot, message: Message):
+async def start(_, message: Message):
     welcome_text = (
         "**👋 Welcome to the Media Downloader Bot!**\n\n"
         "This bot helps you download media from Restricted channel\n"
@@ -50,7 +51,7 @@ async def start(bot, message: Message):
 
 
 @bot.on_message(filters.command("help") & filters.private)
-async def help_command(bot, message: Message):
+async def help_command(_, message: Message):
     help_text = (
         "💡 **How to Use the Bot**\n\n"
         "1. Send the command `/dl post URL` to download media from a specific message.\n"
@@ -62,7 +63,7 @@ async def help_command(bot, message: Message):
 
 
 @bot.on_message(filters.command("dl") & filters.private)
-async def download_media(bot, message: Message):
+async def download_media(bot: Client, message: Message):
     if len(message.command) < 2:
         await message.reply("**Provide a post URL after the /dl command.**")
         return
@@ -71,7 +72,7 @@ async def download_media(bot, message: Message):
 
     try:
         chat_id, message_id = getChatMsgID(post_url)
-        chat_message = await user.get_messages(chat_id, message_id)
+        chat_message = await user.get_messages(chat_id=chat_id, message_ids=message_id)
 
         LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
 
@@ -97,7 +98,7 @@ async def download_media(bot, message: Message):
         )
 
         if chat_message.media_group_id:
-            if not await processMediaGroup(user, chat_id, message_id, bot, message):
+            if not await processMediaGroup(chat_message, bot, message):
                 await message.reply(
                     "**Could not extract any valid media from the media group.**"
                 )
@@ -107,7 +108,13 @@ async def download_media(bot, message: Message):
             start_time = time()
             progress_message = await message.reply("**📥 Downloading Progress...**")
 
-            media_path = await chat_message.download()
+            media_path = await chat_message.download(
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progressArgs(
+                    "📥 Downloading Progress", progress_message, start_time
+                ),
+            )
+
             LOGGER(__name__).info(f"Downloaded media: {media_path}")
 
             media_type = (
@@ -137,16 +144,16 @@ async def download_media(bot, message: Message):
         else:
             await message.reply("**No media or text found in the post URL.**")
 
-    except PeerIdInvalid:
+    except (PeerIdInvalid, BadRequest, KeyError):
         await message.reply("**Make sure the user client is part of the chat.**")
     except Exception as e:
-        traceback.format_exc(e)
         error_message = f"**❌ {str(e)}**"
         await message.reply(error_message)
+        LOGGER(__name__).error(e)
 
 
 @bot.on_message(filters.command("stats") & filters.private)
-async def stats(bot, message: Message):
+async def stats(_, message: Message):
     currentTime = get_readable_time(time() - PyroConf.BOT_START_TIME)
     total, used, free = shutil.disk_usage(".")
     total = get_readable_file_size(total)
@@ -176,15 +183,21 @@ async def stats(bot, message: Message):
 
 
 @bot.on_message(filters.command("logs") & filters.private)
-async def logs(client: Client, message: Message):
-    if os.path.exists("yui.log"):
+async def logs(_, message: Message):
+    if os.path.exists("logs.txt"):
         await message.reply_document(document="logs.txt", caption="**Logs**")
     else:
         await message.reply("**Not exists**")
 
 
 if __name__ == "__main__":
-    LOGGER(__name__).info("Bot is starting...")
-    user.start()
-    bot.run()
-    LOGGER(__name__).info("Bot is running!")
+    try:
+        LOGGER(__name__).info("Bot Started!")
+        user.start()
+        bot.run()
+    except KeyboardInterrupt:
+        pass
+    except Exception as err:
+        LOGGER(__name__).error(err)
+    finally:
+        LOGGER(__name__).info("Bot Stopped")
