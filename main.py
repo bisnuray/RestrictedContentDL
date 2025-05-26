@@ -4,6 +4,7 @@
 import os
 import shutil
 from time import time
+import asyncio
 
 import psutil
 from pyrogram.types import Message
@@ -39,6 +40,18 @@ bot = Client(
 # Client for user session
 user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRING)
 
+# Track running tasks for cancellation
+RUNNING_TASKS = set()
+
+def track_task(coro):
+    """Helper to track and wrap a coroutine as a task."""
+    task = asyncio.create_task(coro)
+    RUNNING_TASKS.add(task)
+    def _remove(_):
+        RUNNING_TASKS.discard(task)
+    task.add_done_callback(_remove)
+    return task
+
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start(_, message: Message):
@@ -58,17 +71,15 @@ async def help_command(_, message: Message):
         "2. The bot will download the media (photos, videos, audio, or documents) also can copy message.\n"
         "3. Make sure the bot and the user client are part of the chat to download the media.\n\n"
         "**Example**: `/dl https://t.me/itsSmartDev/547`"
+		"use /killall if bot gets stuck"
     )
     await message.reply(help_text)
 
 
-@bot.on_message(filters.command("dl") & filters.private)
-async def download_media(bot: Client, message: Message):
-    if len(message.command) < 2:
-        await message.reply("**Provide a post URL after the /dl command.**")
-        return
-
-    post_url = message.command[1]
+async def handle_download(bot: Client, message: Message, post_url: str):
+    # Cut off URL at '?' if present
+    if "?" in post_url:
+        post_url = post_url.split("?", 1)[0]
 
     try:
         chat_id, message_id = getChatMsgID(post_url)
@@ -152,6 +163,23 @@ async def download_media(bot: Client, message: Message):
         LOGGER(__name__).error(e)
 
 
+@bot.on_message(filters.command("dl") & filters.private)
+async def download_media(bot: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply("**Provide a post URL after the /dl command.**")
+        return
+
+    post_url = message.command[1]
+    # Wrap handle_download in tracked task
+    await track_task(handle_download(bot, message, post_url))
+
+
+@bot.on_message(filters.private & ~filters.command(["start", "help", "dl", "stats", "logs", "killall"]))
+async def handle_any_message(bot: Client, message: Message):
+    if message.text and not message.text.startswith("/"):
+        await track_task(handle_download(bot, message, message.text))
+
+
 @bot.on_message(filters.command("stats") & filters.private)
 async def stats(_, message: Message):
     currentTime = get_readable_time(time() - PyroConf.BOT_START_TIME)
@@ -188,6 +216,16 @@ async def logs(_, message: Message):
         await message.reply_document(document="logs.txt", caption="**Logs**")
     else:
         await message.reply("**Not exists**")
+
+
+@bot.on_message(filters.command("killall") & filters.private)
+async def cancel_all_tasks(_, message: Message):
+    cancelled = 0
+    for task in list(RUNNING_TASKS):
+        if not task.done():
+            task.cancel()
+            cancelled += 1
+    await message.reply(f"**Cancelled {cancelled} running task(s).**")
 
 
 if __name__ == "__main__":
