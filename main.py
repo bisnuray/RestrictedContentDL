@@ -3,15 +3,15 @@
 
 import os
 import shutil
-from time import time
-import asyncio
-
 import psutil
-from pyrogram.types import Message
+import asyncio
+from time import time
+
+from pyleaves import Leaves
 from pyrogram.enums import ParseMode
 from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid, BadRequest
-from pyleaves import Leaves
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from helpers.utils import (
     getChatMsgID,
@@ -40,11 +40,9 @@ bot = Client(
 # Client for user session
 user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRING)
 
-# Track running tasks for cancellation
 RUNNING_TASKS = set()
 
 def track_task(coro):
-    """Helper to track and wrap a coroutine as a task."""
     task = asyncio.create_task(coro)
     RUNNING_TASKS.add(task)
     def _remove(_):
@@ -52,28 +50,46 @@ def track_task(coro):
     task.add_done_callback(_remove)
     return task
 
-
 @bot.on_message(filters.command("start") & filters.private)
 async def start(_, message: Message):
     welcome_text = (
-        "**👋 Welcome to the Media Downloader Bot!**\n\n"
-        "This bot helps you download media from Restricted channel\n"
-        "Use /help for more information on how to use this bot."
+        "👋 **Welcome to Media Downloader Bot!**\n\n"
+        "I can grab photos, videos, audio, and documents from any Telegram post.\n"
+        "Just send me a link (paste it directly or use `/dl <link>`),\n"
+        "or reply to a message with `/dl`.\n\n"
+        "ℹ️ Use `/help` to view all commands and examples.\n"
+        "🔒 Make sure the user client is part of the chat.\n\n"
+        "Ready? Send me a Telegram post link!"
     )
-    await message.reply(welcome_text)
 
+    markup = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Update Channel", url="https://t.me/itsSmartDev")]]
+    )
+    await message.reply(welcome_text, reply_markup=markup, disable_web_page_preview=True)
 
 @bot.on_message(filters.command("help") & filters.private)
 async def help_command(_, message: Message):
     help_text = (
-        "💡 **How to Use the Bot**\n\n"
-        "1. Send the command `/dl post URL` to download media from a specific message.\n"
-        "2. The bot will download the media (photos, videos, audio, or documents) also can copy message.\n"
-        "3. Make sure the bot and the user client are part of the chat to download the media.\n\n"
-        "**Example**: `/dl https://t.me/itsSmartDev/547`"
-		"use /killall if bot gets stuck"
+        "💡 **Media Downloader Bot Help**\n\n"
+        "➤ **Download Media**\n"
+        "   – Send `/dl <post_URL>` **or** just paste a Telegram post link to fetch photos, videos, audio, or documents.\n\n"
+        "➤ **Requirements**\n"
+        "   – Make sure the user client is part of the chat.\n\n"
+        "➤ **If the bot hangs**\n"
+        "   – Send `/killall` to cancel any pending downloads.\n\n"
+        "➤ **Logs**\n"
+        "   – Send `/logs` to download the bot’s logs file.\n\n"
+        "➤ **Stats**\n"
+        "   – Send `/stats` to view current status:\n\n"
+        "**Example**:\n"
+        "  • `/dl https://t.me/itsSmartDev/547`\n"
+        "  • `https://t.me/itsSmartDev/547`"
     )
-    await message.reply(help_text)
+    
+    markup = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Update Channel", url="https://t.me/itsSmartDev")]]
+    )
+    await message.reply(help_text, reply_markup=markup, disable_web_page_preview=True)
 
 
 async def handle_download(bot: Client, message: Message, post_url: str):
@@ -170,7 +186,6 @@ async def download_media(bot: Client, message: Message):
         return
 
     post_url = message.command[1]
-    # Wrap handle_download in tracked task
     await track_task(handle_download(bot, message, post_url))
 
 
