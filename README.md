@@ -75,11 +75,18 @@ docker compose down
 
 ## Usage
 
-- `/start` – Welcomes the user and gives a brief introduction.
-- `/help` – Provides detailed instructions on how to use the bot.
-- `/dl <post URL>` – Downloads the media from the specified post URL.
+- **`/start`** – Welcomes you and gives a brief introduction.  
+- **`/help`** – Shows detailed instructions and examples.  
+- **`/dl <post_URL>`** or simply paste a Telegram post link – Fetch photos, videos, audio, or documents from that post.  
+- **`/killall`** – Cancel any pending downloads if the bot hangs.  
+- **`/logs`** – Download the bot’s logs file.  
+- **`/stats`** – View current status (uptime, disk, memory, network, CPU, etc.).
 
-> **Note:** Ensure that the user client is part of the chat from where the media is being downloaded. If the user client is not part of the chat, the bot will not be able to download the file.
+### Examples
+- `/dl https://t.me/itsSmartDev/547`  
+- `https://t.me/itsSmartDev/547`
+
+> **Note:** Make sure both this bot and your user session are members of the source chat or channel before downloading.  
 
 ## Author
 
