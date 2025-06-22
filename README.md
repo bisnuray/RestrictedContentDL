@@ -78,15 +78,14 @@ docker compose down
 - **`/start`** – Welcomes you and gives a brief introduction.  
 - **`/help`** – Shows detailed instructions and examples.  
 - **`/dl <post_URL>`** or simply paste a Telegram post link – Fetch photos, videos, audio, or documents from that post.  
+- **`/bdl <start_link> <end_link>`** – Batch-download a range of posts in one go.  
+
+  > 💡 Example: `/bdl https://t.me/mychannel/100 https://t.me/mychannel/120`  
 - **`/killall`** – Cancel any pending downloads if the bot hangs.  
 - **`/logs`** – Download the bot’s logs file.  
-- **`/stats`** – View current status (uptime, disk, memory, network, CPU, etc.).
+- **`/stats`** – View current status (uptime, disk, memory, network, CPU, etc.).  
 
-### Examples
-- `/dl https://t.me/itsSmartDev/547`  
-- `https://t.me/itsSmartDev/547`
-
-> **Note:** Make sure both this bot and your user session are members of the source chat or channel before downloading.  
+> **Note:** Make sure that your user session is a member of the source chat or channel before downloading.
 
 ## Author
 
