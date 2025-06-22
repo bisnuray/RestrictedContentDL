@@ -73,6 +73,12 @@ async def help_command(_, message: Message):
         "💡 **Media Downloader Bot Help**\n\n"
         "➤ **Download Media**\n"
         "   – Send `/dl <post_URL>` **or** just paste a Telegram post link to fetch photos, videos, audio, or documents.\n\n"
+        
+        "➤ **Batch Download**\n"
+        "   – Send `/bdl start_link end_link` to grab a series of posts in one go.\n"
+        "     💡 Example: `/bdl https://t.me/mychannel/100 https://t.me/mychannel/120`\n"
+        "**It will download all posts from ID 100 to 120.**\n\n"
+        
         "➤ **Requirements**\n"
         "   – Make sure the user client is part of the chat.\n\n"
         "➤ **If the bot hangs**\n"
