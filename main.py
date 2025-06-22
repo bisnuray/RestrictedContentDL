@@ -194,6 +194,72 @@ async def download_media(bot: Client, message: Message):
     post_url = message.command[1]
     await track_task(handle_download(bot, message, post_url))
 
+
+@bot.on_message(filters.command("bdl") & filters.private)
+async def download_range(bot: Client, message: Message):
+    args = message.text.split()
+
+    if len(args) != 3 or not all(arg.startswith("https://t.me/") for arg in args[1:]):
+        await message.reply(
+            "🚀 **Batch Download Process**\n"
+            "`/bdl start_link end_link`\n\n"
+            "💡 **Example:**\n"
+            "`/bdl https://t.me/mychannel/100 https://t.me/mychannel/120`"
+        )
+        return
+
+    try:
+        start_chat, start_id = getChatMsgID(args[1])
+        end_chat,   end_id   = getChatMsgID(args[2])
+    except Exception as e:
+        return await message.reply(f"**❌ Error parsing links:\n{e}**")
+
+    if start_chat != end_chat:
+        return await message.reply("**❌ Both links must be from the same channel.**")
+    if start_id > end_id:
+        return await message.reply("**❌ Invalid range: start ID cannot exceed end ID.**")
+
+    try:
+        await user.get_chat(start_chat)
+    except Exception:
+        pass
+
+    prefix = args[1].rsplit("/", 1)[0]
+    loading = await message.reply(f"📥 **Downloading posts {start_id}–{end_id}…**")
+
+    downloaded = skipped = failed = 0
+
+    for msg_id in range(start_id, end_id + 1):
+        url = f"{prefix}/{msg_id}"
+        try:
+            chat_msg = await user.get_messages(chat_id=start_chat, message_ids=msg_id)
+            if not chat_msg:
+                skipped += 1
+                continue
+
+            has_media = bool(chat_msg.media_group_id or chat_msg.media)
+            has_text  = bool(chat_msg.text or chat_msg.caption)
+            if not (has_media or has_text):
+                skipped += 1
+                continue
+
+            await handle_download(bot, message, url)
+            downloaded += 1
+
+        except Exception as e:
+            failed += 1
+            LOGGER(__name__).error(f"Error at {url}: {e}")
+
+        await asyncio.sleep(3)
+
+    await loading.delete()
+    await message.reply(
+        f"✅ **Batch Complete!**\n"
+        f"• Downloaded: `{downloaded}` posts\n"
+        f"• Skipped   : `{skipped}` (no content)\n"
+        f"• Failed    : `{failed}` errors"
+    )
+
 @bot.on_message(filters.command("dlrange") & filters.private)
 async def download_range(bot: Client, message: Message):
     args = message.text.split()
