@@ -14,14 +14,23 @@ from pyrogram.errors import PeerIdInvalid, BadRequest
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from helpers.utils import (
-    getChatMsgID,
     processMediaGroup,
-    get_parsed_msg,
-    fileSizeLimit,
     progressArgs,
-    send_media,
+    send_media
+)
+
+from helpers.files import (
+    get_download_path,
+    fileSizeLimit,
     get_readable_file_size,
     get_readable_time,
+    cleanup_download
+)
+
+from helpers.msg import (
+    getChatMsgID,
+    get_file_name,
+    get_parsed_msg
 )
 
 from config import PyroConf
@@ -50,6 +59,7 @@ def track_task(coro):
     task.add_done_callback(_remove)
     return task
 
+
 @bot.on_message(filters.command("start") & filters.private)
 async def start(_, message: Message):
     welcome_text = (
@@ -67,18 +77,17 @@ async def start(_, message: Message):
     )
     await message.reply(welcome_text, reply_markup=markup, disable_web_page_preview=True)
 
+
 @bot.on_message(filters.command("help") & filters.private)
 async def help_command(_, message: Message):
     help_text = (
         "💡 **Media Downloader Bot Help**\n\n"
         "➤ **Download Media**\n"
         "   – Send `/dl <post_URL>` **or** just paste a Telegram post link to fetch photos, videos, audio, or documents.\n\n"
-        
         "➤ **Batch Download**\n"
         "   – Send `/bdl start_link end_link` to grab a series of posts in one go.\n"
         "     💡 Example: `/bdl https://t.me/mychannel/100 https://t.me/mychannel/120`\n"
         "**It will download all posts from ID 100 to 120.**\n\n"
-        
         "➤ **Requirements**\n"
         "   – Make sure the user client is part of the chat.\n\n"
         "➤ **If the bot hangs**\n"
@@ -141,7 +150,11 @@ async def handle_download(bot: Client, message: Message, post_url: str):
             start_time = time()
             progress_message = await message.reply("**📥 Downloading Progress...**")
 
+            filename = get_file_name(message_id, chat_message)
+            download_path = get_download_path(message.id, filename)
+
             media_path = await chat_message.download(
+                file_name=download_path,
                 progress=Leaves.progress_for_pyrogram,
                 progress_args=progressArgs(
                     "📥 Downloading Progress", progress_message, start_time
@@ -169,7 +182,7 @@ async def handle_download(bot: Client, message: Message, post_url: str):
                 start_time,
             )
 
-            os.remove(media_path)
+            cleanup_download(media_path)
             await progress_message.delete()
 
         elif chat_message.text or chat_message.caption:
@@ -243,8 +256,15 @@ async def download_range(bot: Client, message: Message):
                 skipped += 1
                 continue
 
-            await handle_download(bot, message, url)
-            downloaded += 1
+            task = track_task(handle_download(bot, message, url))
+            try:
+                await task
+                downloaded += 1
+            except asyncio.CancelledError:
+                await loading.delete()
+                return await message.reply(
+                    f"**❌ Batch canceled** after downloading `{downloaded}` posts."
+                )
 
         except Exception as e:
             failed += 1
@@ -254,41 +274,12 @@ async def download_range(bot: Client, message: Message):
 
     await loading.delete()
     await message.reply(
-        f"✅ **Batch Complete!**\n"
-        f"• Downloaded: `{downloaded}` posts\n"
-        f"• Skipped   : `{skipped}` (no content)\n"
-        f"• Failed    : `{failed}` errors"
+        "**✅ Batch Process Complete!**\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"📥 **Downloaded** : `{downloaded}` post(s)\n"
+        f"⏭️ **Skipped**    : `{skipped}` (no content)\n"
+        f"❌ **Failed**     : `{failed}` error(s)"
     )
-
-@bot.on_message(filters.command("dlrange") & filters.private)
-async def download_range(bot: Client, message: Message):
-    args = message.text.split()
-
-    if len(args) != 3 or not all(arg.startswith("https://t.me/") for arg in args[1:]):
-        await message.reply("❌ Usage:\n`/dlrange <start_link> <end_link>`\n\nExample:\n`/dlrange https://t.me/mychannel/100 https://t.me/mychannel/120`")
-        return
-
-    try:
-        start_chat, start_id = getChatMsgID(args[1])
-        end_chat, end_id = getChatMsgID(args[2])
-    except Exception as e:
-        return await message.reply(f"❌ Error parsing links:\n{e}")
-
-    if start_chat != end_chat:
-        return await message.reply("❌ Both links must be from the same channel.")
-
-    if start_id > end_id:
-        return await message.reply("❌ Start ID must be less than or equal to End ID.")
-
-    await message.reply(f"📥 **Downloading posts from {start_id} to {end_id}...**")
-
-    for msg_id in range(start_id, end_id + 1):
-        try:
-            url = f"https://t.me/{start_chat}/{msg_id}"
-            await handle_download(bot, message, url)
-            await asyncio.sleep(2)
-        except Exception as e:
-            await message.reply(f"❌ Error at {url}: {e}")
 
 
 @bot.on_message(filters.private & ~filters.command(["start", "help", "dl", "stats", "logs", "killall"]))
