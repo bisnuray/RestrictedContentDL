@@ -1,12 +1,14 @@
 # Copyright (C) @TheSmartBisnu
 # Channel: https://t.me/itsSmartDev
 
-from asyncio.subprocess import PIPE
 import os
 from time import time
-from typing import Optional
-from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
 from PIL import Image
+from logger import LOGGER
+from typing import Optional
+from asyncio.subprocess import PIPE
+from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
+
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
@@ -18,55 +20,14 @@ from pyrogram.types import (
     Voice,
 )
 
-from logger import LOGGER
+from helpers.files import (
+    fileSizeLimit,
+    cleanup_download
+)
 
-SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
-
-
-def get_readable_file_size(size_in_bytes: Optional[float]) -> str:
-    if size_in_bytes is None or size_in_bytes < 0:
-        return "0B"
-
-    for unit in SIZE_UNITS:
-        if size_in_bytes < 1024:
-            return f"{size_in_bytes:.2f} {unit}"
-        size_in_bytes /= 1024
-
-    return "File too large"
-
-
-def get_readable_time(seconds: int) -> str:
-    result = ""
-    (days, remainder) = divmod(seconds, 86400)
-    days = int(days)
-    if days != 0:
-        result += f"{days}d"
-    (hours, remainder) = divmod(remainder, 3600)
-    hours = int(hours)
-    if hours != 0:
-        result += f"{hours}h"
-    (minutes, seconds) = divmod(remainder, 60)
-    minutes = int(minutes)
-    if minutes != 0:
-        result += f"{minutes}m"
-    seconds = int(seconds)
-    result += f"{seconds}s"
-    return result
-
-
-async def fileSizeLimit(file_size, message, action_type="download", is_premium=False):
-    MAX_FILE_SIZE = 2 * 2097152000 if is_premium else 2097152000
-    if file_size > MAX_FILE_SIZE:
-        await message.reply(
-            f"The file size exceeds the {get_readable_file_size(MAX_FILE_SIZE)} limit and cannot be {action_type}ed."
-        )
-        return False
-    return True
-
-
-async def get_parsed_msg(text, entities):
-    return Parser.unparse(text, entities or [], is_html=False)
-
+from helpers.msg import (
+    get_parsed_msg
+)
 
 # Progress bar template
 PROGRESS_BAR = """
@@ -74,43 +35,6 @@ Percentage: {percentage:.2f}% | {current}/{total}
 Speed: {speed}/s
 Estimated Time Left: {est_time} seconds
 """
-
-
-def getChatMsgID(link: str):
-    linkps = link.split("/")
-    chat_id, message_thread_id, message_id = None, None, None
-    
-    try:
-        if len(linkps) == 7 and linkps[3] == "c":
-            # https://t.me/c/1192302355/322/487
-            chat_id = get_channel_id(int(linkps[4]))
-            message_thread_id = int(linkps[5])
-            message_id = int(linkps[6])
-        elif len(linkps) == 6:
-            if linkps[3] == "c":
-                # https://t.me/c/1387666944/609282
-                chat_id = get_channel_id(int(linkps[4]))
-                message_id = int(linkps[5])
-            else:
-                # https://t.me/TheForum/322/487
-                chat_id = linkps[3]
-                message_thread_id = int(linkps[4])
-                message_id = int(linkps[5])
-
-        elif len(linkps) == 5:
-            # https://t.me/pyrogramchat/609282
-            chat_id = linkps[3]
-            if chat_id == "m":
-                raise ValueError("Invalid ClientType used to parse this message link")
-            message_id = int(linkps[4])
-
-    except (ValueError, TypeError):
-        raise ValueError("Invalid post URL. Must end with a numeric ID.")
-
-    if not chat_id or not message_id:
-        raise ValueError("Please send a valid Telegram post URL.")
-
-    return chat_id, message_id
 
 async def cmd_exec(cmd, shell=False):
     if shell:
@@ -131,25 +55,16 @@ async def cmd_exec(cmd, shell=False):
 
 async def get_media_info(path):
     try:
-        result = await cmd_exec(
-            [
-                "ffprobe",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-print_format",
-                "json",
-                "-show_format",
-                path,
-            ]
-        )
+        result = await cmd_exec([
+            "ffprobe", "-hide_banner", "-loglevel", "error",
+            "-print_format", "json", "-show_format", path,
+        ])
     except Exception as e:
         print(f"Get Media Info: {e}. Mostly File not found! - File: {path}")
         return 0, None, None
     if result[0] and result[2] == 0:
         fields = eval(result[0]).get("format")
-        if fields is None:
-            print(f"get_media_info: {result}")
+        if not fields:
             return 0, None, None
         duration = round(float(fields.get("duration", 0)))
         tags = fields.get("tags", {})
@@ -163,39 +78,20 @@ async def get_video_thumbnail(video_file, duration):
     output = os.path.join("Assets", "video_thumb.jpg")
     if duration is None:
         duration = (await get_media_info(video_file))[0]
-    if duration == 0:
+    if not duration:
         duration = 3
-    duration = duration // 2
+    duration //= 2
     cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-ss",
-        f"{duration}",
-        "-i",
-        video_file,
-        "-vf",
-        "thumbnail",
-        "-q:v",
-        "1",
-        "-frames:v",
-        "1",
-        "-threads",
-        f"{os.cpu_count() // 2}",
-        output,
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-ss", str(duration), "-i", video_file,
+        "-vf", "thumbnail", "-q:v", "1", "-frames:v", "1",
+        "-threads", str(os.cpu_count() // 2), output,
     ]
     try:
         _, err, code = await wait_for(cmd_exec(cmd), timeout=60)
         if code != 0 or not os.path.exists(output):
-            print(
-                f"Error while extracting thumbnail from video. Name: {video_file} stderr: {err}"
-            )
             return None
     except:
-        print(
-            f"Error while extracting thumbnail from video. Name: {video_file}. Error: Timeout some issues with ffmpeg with specific arch!"
-        )
         return None
     return output
 
@@ -383,18 +279,12 @@ async def processMediaGroup(chat_message, bot, message):
 
             await progress_message.delete()
 
-        for path in temp_paths:
-            if os.path.exists(path):
-                os.remove(path)
-        for path in invalid_paths:
-            if os.path.exists(path):
-                os.remove(path)
-
+        for path in temp_paths + invalid_paths:
+            cleanup_download(path)
         return True
 
     await progress_message.delete()
     await message.reply("❌ No valid media found in the media group.")
     for path in invalid_paths:
-        if os.path.exists(path):
-            os.remove(path)
+        cleanup_download(path)
     return False
