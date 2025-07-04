@@ -44,9 +44,9 @@ def get_file_name(message_id: int, chat_message) -> str:
     if chat_message.document:
         return chat_message.document.file_name
     elif chat_message.video:
-        return chat_message.video.file_name
+        return chat_message.video.file_name or f"{message_id}.mp4"
     elif chat_message.audio:
-        return chat_message.audio.file_name
+        return chat_message.audio.file_name or f"{message_id}.mp3"
     elif chat_message.voice:
         return f"{message_id}.ogg"
     elif chat_message.video_note:
