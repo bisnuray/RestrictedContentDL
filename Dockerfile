@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    git build-essential linux-headers-amd64 tzdata && \
+    git build-essential linux-headers-amd64 tzdata ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # Set timezone (use Asia/Kolkata if needed)
