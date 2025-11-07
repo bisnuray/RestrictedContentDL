@@ -24,21 +24,12 @@
 
 Before you begin, ensure you have met the following requirements:
 
-- Python 3.8 or higher. recommended Python 3.11
-- `pyrofork`, `pyleaves` and `tgcrypto` libraries.
-- A Telegram bot token (you can get one from [@BotFather](https://t.me/BotFather) on Telegram).
-- API ID and Hash: You can get these by creating an application on [my.telegram.org](https://my.telegram.org).
-- To Get `SESSION_STRING` Open [@SmartUtilBot](https://t.me/SmartUtilBot). Bot and use /pyro command and then follow all instructions.
+- Docker and Docker Compose installed on your system
+- A Telegram bot token (you can get one from [@BotFather](https://t.me/BotFather) on Telegram)
+- API ID and Hash: You can get these by creating an application on [my.telegram.org](https://my.telegram.org)
+- To Get `SESSION_STRING` Open [@SmartUtilBot](https://t.me/SmartUtilBot). Bot and use /pyro command and then follow all instructions
 
-## Installation
-
-To install `pyrofork`, `pyleaves` and `tgcrypto`, run the following command:
-
-```bash
-pip install -r -U requirements.txt
-```
-
-**Note: If you previously installed `pyrogram`, uninstall it before installing `pyrofork`.**
+> **Note**: All dependencies including Python, `pyrofork`, `pyleaves`, `tgcrypto`, and `ffmpeg` are automatically installed when you deploy with Docker Compose.
 
 ## Configuration
 
@@ -49,23 +40,25 @@ pip install -r -U requirements.txt
    - **`SESSION_STRING`**: The session string generated using [@SmartUtilBot](https://t.me/SmartUtilBot).
    - **`BOT_TOKEN`**: The token you obtained from [@BotFather](https://t.me/BotFather).
 
+3. Optional performance settings (add to `config.py`):
+   - **`MAX_CONCURRENT_DOWNLOADS`**: Number of simultaneous downloads (default: 3)
+   - **`BATCH_SIZE`**: Number of posts to process in parallel during batch downloads (default: 10)
+   - **`FLOOD_WAIT_DELAY`**: Delay in seconds between batch groups to avoid flood limits (default: 3)
+
 ## Deploy the Bot
 
-```sh
-git clone https://github.com/bisnuray/RestrictedContentDL
-cd RestrictedContentDL
-python main.py
-```
+1. Clone the repository:
+   ```sh
+   git clone https://github.com/bisnuray/RestrictedContentDL
+   cd RestrictedContentDL
+   ```
 
-## Deploy the Bot Using Docker Compose
+2. Start the bot:
+   ```sh
+   docker compose up --build --remove-orphans
+   ```
 
-```sh
-git clone https://github.com/bisnuray/RestrictedContentDL
-cd RestrictedContentDL
-docker compose up --build --remove-orphans
-```
-
-Make sure you have Docker and Docker Compose installed on your system. The bot will run in a containerized environment with all dependencies automatically managed.
+The bot will run in a containerized environment with all dependencies (Python, libraries, FFmpeg) automatically installed and managed.
 
 To stop the bot:
 
