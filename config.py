@@ -29,3 +29,7 @@ class PyroConf(object):
     BOT_TOKEN = getenv("BOT_TOKEN")
     SESSION_STRING = getenv("SESSION_STRING")
     BOT_START_TIME = time()
+
+    MAX_CONCURRENT_DOWNLOADS = int(getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
+    BATCH_SIZE = int(getenv("BATCH_SIZE", "10"))
+    FLOOD_WAIT_DELAY = int(getenv("FLOOD_WAIT_DELAY", "3"))
