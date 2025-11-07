@@ -19,6 +19,8 @@ from helpers.utils import (
     send_media
 )
 
+import os
+
 from helpers.files import (
     get_download_path,
     fileSizeLimit,
@@ -42,14 +44,23 @@ bot = Client(
     api_id=PyroConf.API_ID,
     api_hash=PyroConf.API_HASH,
     bot_token=PyroConf.BOT_TOKEN,
-    workers=1000,
+    workers=100,
     parse_mode=ParseMode.MARKDOWN,
+    max_concurrent_transmissions=20,
+    sleep_threshold=30,
 )
 
 # Client for user session
-user = Client("user_session", workers=1000, session_string=PyroConf.SESSION_STRING)
+user = Client(
+    "user_session",
+    workers=100,
+    session_string=PyroConf.SESSION_STRING,
+    max_concurrent_transmissions=20,
+    sleep_threshold=30,
+)
 
 RUNNING_TASKS = set()
+download_semaphore = None
 
 def track_task(coro):
     task = asyncio.create_task(coro)
@@ -108,94 +119,104 @@ async def help_command(_, message: Message):
 
 
 async def handle_download(bot: Client, message: Message, post_url: str):
-    # Cut off URL at '?' if present
-    if "?" in post_url:
-        post_url = post_url.split("?", 1)[0]
+    async with download_semaphore:
+        if "?" in post_url:
+            post_url = post_url.split("?", 1)[0]
 
-    try:
-        chat_id, message_id = getChatMsgID(post_url)
-        chat_message = await user.get_messages(chat_id=chat_id, message_ids=message_id)
+        try:
+            chat_id, message_id = getChatMsgID(post_url)
+            chat_message = await user.get_messages(chat_id=chat_id, message_ids=message_id)
 
-        LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
+            LOGGER(__name__).info(f"Downloading media from URL: {post_url}")
 
-        if chat_message.document or chat_message.video or chat_message.audio:
-            file_size = (
-                chat_message.document.file_size
-                if chat_message.document
-                else chat_message.video.file_size
-                if chat_message.video
-                else chat_message.audio.file_size
+            if chat_message.document or chat_message.video or chat_message.audio:
+                file_size = (
+                    chat_message.document.file_size
+                    if chat_message.document
+                    else chat_message.video.file_size
+                    if chat_message.video
+                    else chat_message.audio.file_size
+                )
+
+                if not await fileSizeLimit(
+                    file_size, message, "download", user.me.is_premium
+                ):
+                    return
+
+            parsed_caption = await get_parsed_msg(
+                chat_message.caption or "", chat_message.caption_entities
+            )
+            parsed_text = await get_parsed_msg(
+                chat_message.text or "", chat_message.entities
             )
 
-            if not await fileSizeLimit(
-                file_size, message, "download", user.me.is_premium
-            ):
+            if chat_message.media_group_id:
+                if not await processMediaGroup(chat_message, bot, message):
+                    await message.reply(
+                        "**Could not extract any valid media from the media group.**"
+                    )
                 return
 
-        parsed_caption = await get_parsed_msg(
-            chat_message.caption or "", chat_message.caption_entities
-        )
-        parsed_text = await get_parsed_msg(
-            chat_message.text or "", chat_message.entities
-        )
+            elif chat_message.media:
+                start_time = time()
+                progress_message = await message.reply("**📥 Downloading Progress...**")
 
-        if chat_message.media_group_id:
-            if not await processMediaGroup(chat_message, bot, message):
-                await message.reply(
-                    "**Could not extract any valid media from the media group.**"
+                filename = get_file_name(message_id, chat_message)
+                download_path = get_download_path(message.id, filename)
+
+                media_path = await chat_message.download(
+                    file_name=download_path,
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progressArgs(
+                        "📥 Downloading Progress", progress_message, start_time
+                    ),
                 )
-            return
 
-        elif chat_message.media:
-            start_time = time()
-            progress_message = await message.reply("**📥 Downloading Progress...**")
+                if not media_path or not os.path.exists(media_path):
+                    await progress_message.edit("**❌ Download failed: File not saved properly**")
+                    return
 
-            filename = get_file_name(message_id, chat_message)
-            download_path = get_download_path(message.id, filename)
+                file_size = os.path.getsize(media_path)
+                if file_size == 0:
+                    await progress_message.edit("**❌ Download failed: File is empty**")
+                    cleanup_download(media_path)
+                    return
 
-            media_path = await chat_message.download(
-                file_name=download_path,
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progressArgs(
-                    "📥 Downloading Progress", progress_message, start_time
-                ),
-            )
+                LOGGER(__name__).info(f"Downloaded media: {media_path} (Size: {file_size} bytes)")
 
-            LOGGER(__name__).info(f"Downloaded media: {media_path}")
+                media_type = (
+                    "photo"
+                    if chat_message.photo
+                    else "video"
+                    if chat_message.video
+                    else "audio"
+                    if chat_message.audio
+                    else "document"
+                )
+                await send_media(
+                    bot,
+                    message,
+                    media_path,
+                    media_type,
+                    parsed_caption,
+                    progress_message,
+                    start_time,
+                )
 
-            media_type = (
-                "photo"
-                if chat_message.photo
-                else "video"
-                if chat_message.video
-                else "audio"
-                if chat_message.audio
-                else "document"
-            )
-            await send_media(
-                bot,
-                message,
-                media_path,
-                media_type,
-                parsed_caption,
-                progress_message,
-                start_time,
-            )
+                cleanup_download(media_path)
+                await progress_message.delete()
 
-            cleanup_download(media_path)
-            await progress_message.delete()
+            elif chat_message.text or chat_message.caption:
+                await message.reply(parsed_text or parsed_caption)
+            else:
+                await message.reply("**No media or text found in the post URL.**")
 
-        elif chat_message.text or chat_message.caption:
-            await message.reply(parsed_text or parsed_caption)
-        else:
-            await message.reply("**No media or text found in the post URL.**")
-
-    except (PeerIdInvalid, BadRequest, KeyError):
-        await message.reply("**Make sure the user client is part of the chat.**")
-    except Exception as e:
-        error_message = f"**❌ {str(e)}**"
-        await message.reply(error_message)
-        LOGGER(__name__).error(e)
+        except (PeerIdInvalid, BadRequest, KeyError):
+            await message.reply("**Make sure the user client is part of the chat.**")
+        except Exception as e:
+            error_message = f"**❌ {str(e)}**"
+            await message.reply(error_message)
+            LOGGER(__name__).error(e)
 
 
 @bot.on_message(filters.command("dl") & filters.private)
@@ -241,6 +262,8 @@ async def download_range(bot: Client, message: Message):
     loading = await message.reply(f"📥 **Downloading posts {start_id}–{end_id}…**")
 
     downloaded = skipped = failed = 0
+    batch_tasks = []
+    BATCH_SIZE = PyroConf.BATCH_SIZE
 
     for msg_id in range(start_id, end_id + 1):
         url = f"{prefix}/{msg_id}"
@@ -257,20 +280,36 @@ async def download_range(bot: Client, message: Message):
                 continue
 
             task = track_task(handle_download(bot, message, url))
-            try:
-                await task
-                downloaded += 1
-            except asyncio.CancelledError:
-                await loading.delete()
-                return await message.reply(
-                    f"**❌ Batch canceled** after downloading `{downloaded}` posts."
-                )
+            batch_tasks.append(task)
+
+            if len(batch_tasks) >= BATCH_SIZE:
+                results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, asyncio.CancelledError):
+                        await loading.delete()
+                        return await message.reply(
+                            f"**❌ Batch canceled** after downloading `{downloaded}` posts."
+                        )
+                    elif isinstance(result, Exception):
+                        failed += 1
+                        LOGGER(__name__).error(f"Error: {result}")
+                    else:
+                        downloaded += 1
+
+                batch_tasks.clear()
+                await asyncio.sleep(PyroConf.FLOOD_WAIT_DELAY)
 
         except Exception as e:
             failed += 1
             LOGGER(__name__).error(f"Error at {url}: {e}")
 
-        await asyncio.sleep(3)
+    if batch_tasks:
+        results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                failed += 1
+            else:
+                downloaded += 1
 
     await loading.delete()
     await message.reply(
@@ -336,9 +375,14 @@ async def cancel_all_tasks(_, message: Message):
     await message.reply(f"**Cancelled {cancelled} running task(s).**")
 
 
+async def initialize():
+    global download_semaphore
+    download_semaphore = asyncio.Semaphore(PyroConf.MAX_CONCURRENT_DOWNLOADS)
+
 if __name__ == "__main__":
     try:
         LOGGER(__name__).info("Bot Started!")
+        asyncio.get_event_loop().run_until_complete(initialize())
         user.start()
         bot.run()
     except KeyboardInterrupt:
