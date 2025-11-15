@@ -19,8 +19,6 @@ from helpers.utils import (
     send_media
 )
 
-import os
-
 from helpers.files import (
     get_download_path,
     fileSizeLimit,
@@ -46,7 +44,7 @@ bot = Client(
     bot_token=PyroConf.BOT_TOKEN,
     workers=100,
     parse_mode=ParseMode.MARKDOWN,
-    max_concurrent_transmissions=20,
+    max_concurrent_transmissions=1, # ✅ SAFE DEFAULT
     sleep_threshold=30,
 )
 
@@ -55,7 +53,7 @@ user = Client(
     "user_session",
     workers=100,
     session_string=PyroConf.SESSION_STRING,
-    max_concurrent_transmissions=20,
+    max_concurrent_transmissions=1, # ✅ SAFE DEFAULT
     sleep_threshold=30,
 )
 
