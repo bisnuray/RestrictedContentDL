@@ -13,6 +13,7 @@ from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
+from pyrogram.errors import FloodWait
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -140,82 +141,108 @@ async def send_media(
     progress_args = progressArgs("📥 Uploading Progress", progress_message, start_time)
     LOGGER(__name__).info(f"Uploading media: {media_path} ({media_type})")
 
-    if media_type == "photo":
-        await message.reply_photo(
-            media_path,
-            caption=caption or "",
-            progress=Leaves.progress_for_pyrogram,
-            progress_args=progress_args,
-        )
-    elif media_type == "video":
-        duration, _, _, width, height = await get_media_info(media_path)
+    async def _send_once():
+        if media_type == "photo":
+            await message.reply_photo(
+                media_path,
+                caption=caption or "",
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progress_args,
+            )
+            return
+        if media_type == "video":
+            duration, _, _, width, height = await get_media_info(media_path)
 
-        if not duration or duration == 0:
-            duration = 0
-            LOGGER(__name__).warning(f"Could not extract duration for {media_path}")
+            if not duration or duration == 0:
+                duration = 0
+                LOGGER(__name__).warning(f"Could not extract duration for {media_path}")
 
-        if not width or not height:
-            width = 640
-            height = 480
+            if not width or not height:
+                width = 640
+                height = 480
 
-        thumb = await get_video_thumbnail(media_path, duration)
+            thumb = await get_video_thumbnail(media_path, duration)
 
-        await message.reply_video(
-            media_path,
-            duration=duration,
-            width=width,
-            height=height,
-            thumb=thumb,
-            caption=caption or "",
-            supports_streaming=True,
-            progress=Leaves.progress_for_pyrogram,
-            progress_args=progress_args,
-        )
-    elif media_type == "audio":
-        duration, artist, title, _, _ = await get_media_info(media_path)
-        await message.reply_audio(
-            media_path,
-            duration=duration,
-            performer=artist,
-            title=title,
-            caption=caption or "",
-            progress=Leaves.progress_for_pyrogram,
-            progress_args=progress_args,
-        )
-    elif media_type == "document":
-        await message.reply_document(
-            media_path,
-            caption=caption or "",
-            progress=Leaves.progress_for_pyrogram,
-            progress_args=progress_args,
-        )
+            await message.reply_video(
+                media_path,
+                duration=duration,
+                width=width,
+                height=height,
+                thumb=thumb,
+                caption=caption or "",
+                supports_streaming=True,
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progress_args,
+            )
+            if thumb:
+                cleanup_download(thumb)
+            return
+        if media_type == "audio":
+            duration, artist, title, _, _ = await get_media_info(media_path)
+            await message.reply_audio(
+                media_path,
+                duration=duration,
+                performer=artist,
+                title=title,
+                caption=caption or "",
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progress_args,
+            )
+            return
+        if media_type == "document":
+            await message.reply_document(
+                media_path,
+                caption=caption or "",
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progress_args,
+            )
+
+    for attempt in range(2):
+        try:
+            await _send_once()
+            return
+        except FloodWait as e:
+            wait_s = int(getattr(e, "value", 0) or 0)
+            LOGGER(__name__).warning(f"FloodWait while uploading media: {wait_s}s")
+            if wait_s > 0 and attempt == 0:
+                await asyncio.sleep(wait_s + 1)
+                continue
+            raise
 
 
 async def download_single_media(msg, progress_message, start_time):
-    try:
-        media_path = await msg.download(
-            progress=Leaves.progress_for_pyrogram,
-            progress_args=progressArgs(
-                "📥 Downloading Progress", progress_message, start_time
-            ),
-        )
+    for attempt in range(2):
+        try:
+            media_path = await msg.download(
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progressArgs(
+                    "📥 Downloading Progress", progress_message, start_time
+                ),
+            )
 
-        parsed_caption = await get_parsed_msg(
-            msg.caption or "", msg.caption_entities
-        )
+            parsed_caption = await get_parsed_msg(
+                msg.caption or "", msg.caption_entities
+            )
 
-        if msg.photo:
-            return ("success", media_path, InputMediaPhoto(media=media_path, caption=parsed_caption))
-        elif msg.video:
-            return ("success", media_path, InputMediaVideo(media=media_path, caption=parsed_caption))
-        elif msg.document:
-            return ("success", media_path, InputMediaDocument(media=media_path, caption=parsed_caption))
-        elif msg.audio:
-            return ("success", media_path, InputMediaAudio(media=media_path, caption=parsed_caption))
+            if msg.photo:
+                return ("success", media_path, InputMediaPhoto(media=media_path, caption=parsed_caption))
+            if msg.video:
+                return ("success", media_path, InputMediaVideo(media=media_path, caption=parsed_caption))
+            if msg.document:
+                return ("success", media_path, InputMediaDocument(media=media_path, caption=parsed_caption))
+            if msg.audio:
+                return ("success", media_path, InputMediaAudio(media=media_path, caption=parsed_caption))
 
-    except Exception as e:
-        LOGGER(__name__).info(f"Error downloading media: {e}")
-        return ("error", None, None)
+        except FloodWait as e:
+            wait_s = int(getattr(e, "value", 0) or 0)
+            LOGGER(__name__).warning(f"FloodWait while downloading media: {wait_s}s")
+            if wait_s > 0 and attempt == 0:
+                await asyncio.sleep(wait_s + 1)
+                continue
+            return ("error", None, None)
+        except Exception as e:
+            LOGGER(__name__).info(f"Error downloading media: {e}")
+            return ("error", None, None)
 
     return ("skip", None, None)
 
@@ -255,8 +282,18 @@ async def processMediaGroup(chat_message, bot, message):
 
     if valid_media:
         try:
-            await bot.send_media_group(chat_id=message.chat.id, media=valid_media)
-            await progress_message.delete()
+            for attempt in range(2):
+                try:
+                    await bot.send_media_group(chat_id=message.chat.id, media=valid_media)
+                    await progress_message.delete()
+                    break
+                except FloodWait as e:
+                    wait_s = int(getattr(e, "value", 0) or 0)
+                    LOGGER(__name__).warning(f"FloodWait while sending media group: {wait_s}s")
+                    if wait_s > 0 and attempt == 0:
+                        await asyncio.sleep(wait_s + 1)
+                        continue
+                    raise
         except Exception:
             await message.reply(
                 "**❌ Failed to send media group, trying individual uploads**"

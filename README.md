@@ -76,6 +76,7 @@ docker compose down
   > 💡 Example: `/bdl https://t.me/mychannel/100 https://t.me/mychannel/120`  
 - **`/killall`** – Cancel any pending downloads if the bot hangs.  
 - **`/logs`** – Download the bot’s logs file.  
+- **`/cleanup`** – Remove temporary downloaded files from the server.  
 - **`/stats`** – View current status (uptime, disk, memory, network, CPU, etc.).  
 
 > **Note:** Make sure that your user session is a member of the source chat or channel before downloading.

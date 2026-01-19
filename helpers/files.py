@@ -2,6 +2,7 @@
 # Channel: https://t.me/itsSmartDev
 
 import os
+import shutil
 from typing import Optional
 
 from logger import LOGGER
@@ -29,6 +30,24 @@ def cleanup_download(path: str) -> None:
 
     except Exception as e:
         LOGGER(__name__).error(f"Cleanup failed for {path}: {e}")
+
+
+def cleanup_downloads_root(root_dir: str = "downloads") -> tuple[int, int]:
+    if not os.path.isdir(root_dir):
+        return 0, 0
+
+    file_count = 0
+    total_size = 0
+    for dirpath, _, filenames in os.walk(root_dir):
+        for name in filenames:
+            file_count += 1
+            try:
+                total_size += os.path.getsize(os.path.join(dirpath, name))
+            except OSError:
+                pass
+
+    shutil.rmtree(root_dir, ignore_errors=True)
+    return file_count, total_size
 
 
 def get_readable_file_size(size_in_bytes: Optional[float]) -> str:
