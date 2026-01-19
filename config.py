@@ -6,6 +6,7 @@ from time import time
 from dotenv import load_dotenv
 
 try:
+    load_dotenv("config.env.local")
     load_dotenv("config.env")
 except:
     pass
@@ -30,6 +31,6 @@ class PyroConf(object):
     SESSION_STRING = getenv("SESSION_STRING")
     BOT_START_TIME = time()
 
-    MAX_CONCURRENT_DOWNLOADS = int(getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
-    BATCH_SIZE = int(getenv("BATCH_SIZE", "10"))
-    FLOOD_WAIT_DELAY = int(getenv("FLOOD_WAIT_DELAY", "3"))
+    MAX_CONCURRENT_DOWNLOADS = int(getenv("MAX_CONCURRENT_DOWNLOADS", "1"))
+    BATCH_SIZE = int(getenv("BATCH_SIZE", "1"))
+    FLOOD_WAIT_DELAY = int(getenv("FLOOD_WAIT_DELAY", "10"))

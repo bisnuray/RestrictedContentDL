@@ -1,9 +1,15 @@
 *__pycache__*
 *.session*
 *.vscode*
-# *.env
+.env
+config.env.local
 *.log
 *.json
 *.html
 ./*.py
 test.py
+.osgrep
+osgrep
+downloads
+Assets
+logs.txt

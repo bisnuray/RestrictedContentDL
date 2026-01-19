@@ -10,7 +10,7 @@ from time import time
 from pyleaves import Leaves
 from pyrogram.enums import ParseMode
 from pyrogram import Client, filters
-from pyrogram.errors import PeerIdInvalid, BadRequest
+from pyrogram.errors import PeerIdInvalid, BadRequest, FloodWait
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from helpers.utils import (
@@ -24,7 +24,8 @@ from helpers.files import (
     fileSizeLimit,
     get_readable_file_size,
     get_readable_time,
-    cleanup_download
+    cleanup_download,
+    cleanup_downloads_root
 )
 
 from helpers.msg import (
@@ -103,6 +104,8 @@ async def help_command(_, message: Message):
         "   – Send `/killall` to cancel any pending downloads.\n\n"
         "➤ **Logs**\n"
         "   – Send `/logs` to download the bot’s logs file.\n\n"
+        "➤ **Cleanup**\n"
+        "   – Send `/cleanup` to remove temporary downloaded files from disk.\n\n"
         "➤ **Stats**\n"
         "   – Send `/stats` to view current status:\n\n"
         "**Example**:\n"
@@ -114,6 +117,21 @@ async def help_command(_, message: Message):
         [[InlineKeyboardButton("Update Channel", url="https://t.me/itsSmartDev")]]
     )
     await message.reply(help_text, reply_markup=markup, disable_web_page_preview=True)
+
+
+@bot.on_message(filters.command("cleanup") & filters.private)
+async def cleanup_storage(_, message: Message):
+    try:
+        files_removed, bytes_freed = cleanup_downloads_root()
+        if files_removed == 0:
+            return await message.reply("🧹 **Cleanup complete:** no local downloads found.")
+        return await message.reply(
+            f"🧹 **Cleanup complete:** removed `{files_removed}` file(s), "
+            f"freed `{get_readable_file_size(bytes_freed)}`."
+        )
+    except Exception as e:
+        LOGGER(__name__).error(f"Cleanup failed: {e}")
+        return await message.reply("❌ **Cleanup failed.** Check logs for details.")
 
 
 async def handle_download(bot: Client, message: Message, post_url: str):
@@ -162,13 +180,24 @@ async def handle_download(bot: Client, message: Message, post_url: str):
                 filename = get_file_name(message_id, chat_message)
                 download_path = get_download_path(message.id, filename)
 
-                media_path = await chat_message.download(
-                    file_name=download_path,
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progressArgs(
-                        "📥 Downloading Progress", progress_message, start_time
-                    ),
-                )
+                media_path = None
+                for attempt in range(2):
+                    try:
+                        media_path = await chat_message.download(
+                            file_name=download_path,
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs(
+                                "📥 Downloading Progress", progress_message, start_time
+                            ),
+                        )
+                        break
+                    except FloodWait as e:
+                        wait_s = int(getattr(e, "value", 0) or 0)
+                        LOGGER(__name__).warning(f"FloodWait while downloading media: {wait_s}s")
+                        if wait_s > 0 and attempt == 0:
+                            await asyncio.sleep(wait_s + 1)
+                            continue
+                        raise
 
                 if not media_path or not os.path.exists(media_path):
                     await progress_message.edit("**❌ Download failed: File not saved properly**")
@@ -209,6 +238,12 @@ async def handle_download(bot: Client, message: Message, post_url: str):
             else:
                 await message.reply("**No media or text found in the post URL.**")
 
+        except FloodWait as e:
+            wait_s = int(getattr(e, "value", 0) or 0)
+            LOGGER(__name__).warning(f"FloodWait in handle_download: {wait_s}s")
+            if wait_s > 0:
+                await asyncio.sleep(wait_s + 1)
+            return
         except (PeerIdInvalid, BadRequest, KeyError):
             await message.reply("**Make sure the user client is part of the chat.**")
         except Exception as e:
@@ -260,6 +295,7 @@ async def download_range(bot: Client, message: Message):
     loading = await message.reply(f"📥 **Downloading posts {start_id}–{end_id}…**")
 
     downloaded = skipped = failed = 0
+    processed_media_groups = set()
     batch_tasks = []
     BATCH_SIZE = PyroConf.BATCH_SIZE
 
@@ -270,6 +306,12 @@ async def download_range(bot: Client, message: Message):
             if not chat_msg:
                 skipped += 1
                 continue
+
+            if chat_msg.media_group_id:
+                if chat_msg.media_group_id in processed_media_groups:
+                    skipped += 1
+                    continue
+                processed_media_groups.add(chat_msg.media_group_id)
 
             has_media = bool(chat_msg.media_group_id or chat_msg.media)
             has_text  = bool(chat_msg.text or chat_msg.caption)
@@ -319,7 +361,7 @@ async def download_range(bot: Client, message: Message):
     )
 
 
-@bot.on_message(filters.private & ~filters.command(["start", "help", "dl", "stats", "logs", "killall"]))
+@bot.on_message(filters.private & ~filters.command(["start", "help", "dl", "bdl", "stats", "logs", "killall", "cleanup"]))
 async def handle_any_message(bot: Client, message: Message):
     if message.text and not message.text.startswith("/"):
         await track_task(handle_download(bot, message, message.text))
