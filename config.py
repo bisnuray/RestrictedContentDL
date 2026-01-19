@@ -6,6 +6,7 @@ from time import time
 from dotenv import load_dotenv
 
 try:
+    load_dotenv("config.env.local")
     load_dotenv("config.env")
 except:
     pass
